@@ -13,75 +13,46 @@ import os
 load_dotenv()
 os.environ['OPENAI_API_KEY'] = os.getenv('OPEN_API_KEY')
 os.environ['PINECONE_API_KEY'] = os.getenv('PINECONE_API_KEY')
-#pinecone_env = os.getenv('PINECONE_ENV')
 
 embedding = OpenAIEmbeddings(model="text-embedding-3-small")
-index_name = "ai-chatbot"
+index_name = "harry-potter-bot"
 db = PineconeVectorStore(index_name=index_name, embedding=embedding)
-retriever = db.as_retriever
+retriever = db.as_retriever(search_kwargs={"k": 3})
 
 def getContext(query):
-    #embedding_vector = embedding.embed_query(query)
-    #docs = docsearch.similarity_search_by_vector(embedding_vector)
     docs = db.similarity_search(query)
     return docs
 
-llm = ChatOpenAI(model="gpt-3.5-turbo")
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.4)
 
-# prompt = ChatPromptTemplate.from_messages([
-#         ("system", "Answer the user's questions based on the context: {context}"),
-#         MessagesPlaceholder(variable_name="chat_history"),
-#         ("human", "{input}")
-#     ])
+prompt = ChatPromptTemplate.from_messages([
+        ("system", "Answer the user's questions based on the context: {context}"),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{input}")
+    ])
 
-# chain = create_stuff_documents_chain(llm, prompt)
+chain = create_stuff_documents_chain(llm, prompt)
 
-# retriever_prompt = ChatPromptTemplate.from_messages([
-#     MessagesPlaceholder(variable_name="chat_history"),
-#     ("human", "{input}"),
-#     ("human", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
-# ])
+retriever_prompt = ChatPromptTemplate.from_messages([
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("human", "{input}"),
+    ("human", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
+])
 
-# history_aware_retriever = create_history_aware_retriever(
-#     llm,
-#     retriever,
-#     retriever_prompt
-# )
+history_aware_retriever = create_history_aware_retriever(llm, retriever, retriever_prompt)
 
-# retrieval_chain = create_retrieval_chain(
-#     # retriever,
-#     history_aware_retriever,
-#     chain
-# )
-template = """
-Given chat history: {history}
----
-Answer the question based on the following context:
-{context}
----
-Answer the question based on the above context: {query}
-"""
-
-prompt = ChatPromptTemplate.from_template(template)
-
-chat_history = ""
+retrieval_chain = create_retrieval_chain(history_aware_retriever, chain)
+chat_history = []
 
 while(True):
-    q = input("Ask anything about Harry Potter Sorcerer's Stone: ")
+    q = input("Ask anything from Harry Potter Books 1-7: ")
     if 'exit()' in q:
         break
-    # response = chain.invoke({
-    #     "input": q,
-    #     "chat_history": chat_history
-    # })["answer"]
-    context = getContext(q)
-    content = ""
-    for i in context:
-        content += str(i.page_content)
-    messages = prompt.format(history=chat_history, context=content, query=q)
-    result = llm.invoke(messages).content
-    chat_history += q + "\n"
-    chat_history += result + "\n"
-    # chat_history.append(HumanMessage(content=q))
-    # chat_history.append(AIMessage(content=response))
-    print("Chatbot: " + result)
+    response = retrieval_chain.invoke({
+        "input": q,
+        "chat_history": chat_history
+    })
+    response = response["answer"]
+    chat_history.append(HumanMessage(content=q))
+    chat_history.append(AIMessage(content=response))
+    print("Chatbot: " + response)
